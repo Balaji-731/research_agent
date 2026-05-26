@@ -2,7 +2,7 @@ from src.workflows.graph import app
 
 result = app.invoke(
     {
-        "query": "Build an AI-powered resume screening system"
+        "query": "Future of AI Agents"
     }
 )
 
