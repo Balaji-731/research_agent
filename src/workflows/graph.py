@@ -6,6 +6,7 @@ from src.agents.planner import PlannerAgent
 from src.agents.researcher import ResearcherAgent
 from src.agents.research_summarizer import ResearchSummarizer
 from src.agents.evaluator import EvaluatorAgent
+from src.agents.query_refiner import QueryRefiner
 from src.agents.writer import WriterAgent
 from src.agents.reviewer import ReviewerAgent
 
@@ -13,6 +14,7 @@ from src.agents.reviewer import ReviewerAgent
 planner = PlannerAgent()
 researcher = ResearcherAgent()
 evaluator = EvaluatorAgent()
+refiner=QueryRefiner()
 summarizer=ResearchSummarizer()
 writer = WriterAgent()
 reviewer = ReviewerAgent()
@@ -20,6 +22,8 @@ reviewer = ReviewerAgent()
 
 class AgentState(TypedDict):
     query: str
+    current_query: str
+    query_history: List[str]
     plan: str
     research_history: List[str]
     research_summary:  str
@@ -34,16 +38,18 @@ def planner_node(state):
         state["query"]
     )
 
-    return {"plan": plan}
+    return {"plan": plan,"current_query":state["query"]}
 
 
 def research_node(state):
     research = researcher.research_agent(
-        state["query"]
+        state["current_query"]
     )
     history=state.get("research_history",[])
     history.append(research)
-    return {"research_history": history}
+    searches=state.get("query_history",[])
+    searches.append(state["current_query"])
+    return {"research_history": history,"query_history":searches}
 
 def summarize_node(state):
     summary=summarizer.summarize(
@@ -63,12 +69,19 @@ def evaluator_node(state):
 
     return {"status":status,"retry_count":retry_count}
 
+def refiner_node(state):
+    new_query=refiner.refine(
+        state["query"],
+        state["research_history"]
+    )
+    return {"current_query":new_query}
+
 def evaluation_router(state):
     if state["status"]=="GOOD":
         return "summarizer"
     if state["retry_count"]>=3:
         return "summarizer"
-    return "researcher"
+    return "refiner"
 
 def writer_node(state):
     draft = writer.writer_agent(
@@ -93,6 +106,7 @@ graph.add_node("planner", planner_node)
 graph.add_node("researcher", research_node)
 graph.add_node("summarizer",summarize_node)
 graph.add_node("evaluator",evaluator_node)
+graph.add_node("refiner",refiner_node)
 graph.add_node("writer", writer_node)
 graph.add_node("reviewer", reviewer_node)
 
@@ -102,8 +116,9 @@ graph.add_edge("planner", "researcher")
 graph.add_edge("researcher", "evaluator")
 graph.add_conditional_edges("evaluator",evaluation_router,{
     "summarizer": "summarizer",
-    "researcher":"researcher"
+    "refiner":"refiner"
 })
+graph.add_edge("refiner","researcher")
 graph.add_edge("summarizer","writer")
 graph.add_edge("writer", "reviewer")
 graph.add_edge("reviewer", END)
